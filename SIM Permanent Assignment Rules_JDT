@@ -20,7 +20,8 @@ var mckHamSimConfigCache = null;
 var WINDOW_CONFIG_KEY = 'MCK_HAM_COMPLIANCE_ASSET_SIM_CONFIG_CACHE';
 
 // ---------------------------------------------------------------------------
-// ServiceNow entry point — Type = onChange, variable = new_assignment_type
+// ServiceNow entry point — set Catalog Client Script Type = onChange
+// Applies to variable: new_assignment_type (e.g. "SIM Permanent Assignment Rules_JDT")
 // ---------------------------------------------------------------------------
 function onChange(control, oldValue, newValue, isLoading) {
     if (isLoading || newValue === '') {
@@ -97,7 +98,7 @@ function runPermanentAssignmentLogicForCurrentForm() {
             return;
         }
 
-        var modelCategorySysId = normalizeSysId(assetRecord.getValue('model_category'));
+        var modelCategorySysId = getModelCategorySysIdFromAsset(assetRecord);
 
         if (isSimModelCategorySysId(modelCategorySysId, cfg)) {
             applySimPermanentRules(cfg);
@@ -115,6 +116,25 @@ function isPermanentAssignment(assignmentTypeNewValue, cfg) {
 function normalizeSysId(value) {
     var s = safeTrim(value);
     return s ? s.toLowerCase() : '';
+}
+
+/**
+ * Hardware assets use alm_hardware.model_category. Virtual asset tables may use the same name
+ * or a custom field (e.g. u_model_category). Empty here => non-SIM path.
+ */
+function getModelCategorySysIdFromAsset(assetRecord) {
+    if (!assetRecord) {
+        return '';
+    }
+    var fieldNames = ['model_category', 'u_model_category'];
+    var i;
+    for (i = 0; i < fieldNames.length; i++) {
+        var raw = assetRecord.getValue(fieldNames[i]);
+        if (raw) {
+            return normalizeSysId(raw);
+        }
+    }
+    return '';
 }
 
 function isSimModelCategorySysId(modelCategorySysId, cfg) {
