@@ -1,0 +1,167 @@
+/**
+ * Catalog Client Script — onLoad
+ * Type: onLoad | REQUIRES: MckComplianceAssetAssignmentUtil
+ */
+
+var VARIABLE_TARGET_ASSET = 'target_asset';
+var VARIABLE_NEW_ASSIGNMENT_TYPE = 'new_assignment_type';
+var VARIABLE_NEW_LOAN_END_DATE = 'new_loan_end_date';
+var VARIABLE_NEW_CHARGEBACK_CC = 'new_chargeback_cc';
+var VARIABLE_NEW_MAX_LOAN_END_DATE = 'new_max_loan_end_date';
+
+var SCRIPT_INCLUDE_NAME = 'MckComplianceAssetAssignmentUtil';
+var AJAX_METHOD_NAME = 'getSimPermanentConfig';
+
+var mckHamSimConfigCache = null;
+var WINDOW_CONFIG_KEY = 'MCK_HAM_COMPLIANCE_ASSET_SIM_CONFIG_CACHE';
+
+function onLoad() {
+    ensureSimPermanentConfigLoaded(function () {
+        runPermanentAssignmentLogicForCurrentForm();
+    });
+}
+
+function ensureSimPermanentConfigLoaded(onReady) {
+    hydrateCacheFromWindow();
+    if (mckHamSimConfigCache !== null && isConfigUsable(mckHamSimConfigCache)) {
+        onReady();
+        return;
+    }
+    var glideAjax = new GlideAjax(SCRIPT_INCLUDE_NAME);
+    glideAjax.addParam('sysparm_name', AJAX_METHOD_NAME);
+    glideAjax.getXMLAnswer(function (answer) {
+        mckHamSimConfigCache = parseConfigAnswer(answer);
+        persistCacheToWindow();
+        onReady();
+    });
+}
+
+function hydrateCacheFromWindow() {
+    if (typeof window !== 'undefined' && window[WINDOW_CONFIG_KEY]) {
+        mckHamSimConfigCache = window[WINDOW_CONFIG_KEY];
+    }
+}
+
+function persistCacheToWindow() {
+    if (typeof window !== 'undefined' && mckHamSimConfigCache !== null) {
+        window[WINDOW_CONFIG_KEY] = mckHamSimConfigCache;
+    }
+}
+
+function parseConfigAnswer(answer) {
+    try {
+        if (answer) {
+            return JSON.parse(answer);
+        }
+    } catch (parseError) {
+    }
+    return null;
+}
+
+function isConfigUsable(cfg) {
+    return cfg && cfg.loanDays !== undefined && cfg.loanDays !== null && String(cfg.loanDays) !== ''
+        && cfg.modelCategorySysIdList !== undefined && cfg.permanentAssignmentDisplay !== undefined;
+}
+
+function runPermanentAssignmentLogicForCurrentForm() {
+    var cfg = mckHamSimConfigCache;
+    if (!isConfigUsable(cfg)) {
+        return;
+    }
+    var newValue = g_form.getValue(VARIABLE_NEW_ASSIGNMENT_TYPE);
+
+    if (!newValue || !isPermanentAssignment(newValue, cfg)) {
+        handleNonPermanentAssignment();
+        return;
+    }
+
+    var assetSysId = g_form.getValue(VARIABLE_TARGET_ASSET);
+    if (!assetSysId) {
+        applyNonSimPermanentMaxLoanRules();
+        return;
+    }
+
+    g_form.getReference(VARIABLE_TARGET_ASSET, function (assetRecord) {
+        if (!assetRecord) {
+            applyNonSimPermanentMaxLoanRules();
+            return;
+        }
+
+        var modelCategorySysId = normalizeSysId(assetRecord.getValue('model_category'));
+
+        if (isSimModelCategorySysId(modelCategorySysId, cfg)) {
+            applySimPermanentRules(cfg);
+        } else {
+            applyNonSimPermanentMaxLoanRules();
+        }
+    });
+}
+
+function isPermanentAssignment(assignmentTypeNewValue, cfg) {
+    var permanentLabel = safeTrim(cfg.permanentAssignmentDisplay);
+    return safeTrim(assignmentTypeNewValue) === permanentLabel;
+}
+
+function normalizeSysId(value) {
+    var s = safeTrim(value);
+    return s ? s.toLowerCase() : '';
+}
+
+function isSimModelCategorySysId(modelCategorySysId, cfg) {
+    var listString = cfg.modelCategorySysIdList;
+    if (!listString || typeof listString !== 'string') {
+        return false;
+    }
+    var candidate = normalizeSysId(modelCategorySysId);
+    if (!candidate) {
+        return false;
+    }
+    var tokens = listString.split(',');
+    for (var i = 0; i < tokens.length; i++) {
+        if (normalizeSysId(tokens[i]) === candidate) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function safeTrim(value) {
+    if (value === null || value === undefined) {
+        return '';
+    }
+    return String(value).replace(/^\s+|\s+$/g, '');
+}
+
+function handleNonPermanentAssignment() {
+    g_form.setDisabled(VARIABLE_NEW_MAX_LOAN_END_DATE, true);
+    g_form.setMandatory(VARIABLE_NEW_MAX_LOAN_END_DATE, false);
+    g_form.clearValue(VARIABLE_NEW_MAX_LOAN_END_DATE);
+    g_form.clearValue(VARIABLE_NEW_LOAN_END_DATE);
+}
+
+function applySimPermanentRules(cfg) {
+    var loanDays = parseInt(cfg.loanDays, 10);
+    if (isNaN(loanDays) || loanDays < 0) {
+        return;
+    }
+
+    var assignmentDate = new Date();
+    assignmentDate.setDate(assignmentDate.getDate() + loanDays);
+
+    var yyyy = assignmentDate.getFullYear();
+    var mm = ('0' + (assignmentDate.getMonth() + 1)).slice(-2);
+    var dd = ('0' + assignmentDate.getDate()).slice(-2);
+
+    g_form.setValue(VARIABLE_NEW_LOAN_END_DATE, yyyy + '-' + mm + '-' + dd);
+    g_form.setMandatory(VARIABLE_NEW_CHARGEBACK_CC, false);
+
+    g_form.setDisabled(VARIABLE_NEW_MAX_LOAN_END_DATE, false);
+    g_form.setMandatory(VARIABLE_NEW_MAX_LOAN_END_DATE, true);
+    g_form.clearValue(VARIABLE_NEW_MAX_LOAN_END_DATE);
+}
+
+function applyNonSimPermanentMaxLoanRules() {
+    g_form.setDisabled(VARIABLE_NEW_MAX_LOAN_END_DATE, false);
+    g_form.setMandatory(VARIABLE_NEW_MAX_LOAN_END_DATE, true);
+    g_form.clearValue(VARIABLE_NEW_MAX_LOAN_END_DATE);
+}
