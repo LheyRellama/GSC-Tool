@@ -1,11 +1,3 @@
-/**
- * Catalog Client Script — Permanent assignment type (uses system properties via GlideAjax)
- * Scope: GSC tool only (Compliance Asset Update — GSC). ITDC out of scope.
- * Type: onChange | Variable: new_assignment_type
- *
- * REQUIRES Script Include: MckComplianceAssetAssignmentUtil.getSimPermanentConfig
- */
-
 var VARIABLE_TARGET_ASSET = 'target_asset';
 var VARIABLE_NEW_ASSIGNMENT_TYPE = 'new_assignment_type';
 var VARIABLE_NEW_LOAN_END_DATE = 'new_loan_end_date';
@@ -110,7 +102,29 @@ function runPermanentAssignmentLogicForCurrentForm() {
 
 function isPermanentAssignment(assignmentTypeNewValue, cfg) {
     var permanentLabel = safeTrim(cfg.permanentAssignmentDisplay);
-    return safeTrim(assignmentTypeNewValue) === permanentLabel;
+    if (!permanentLabel) {
+        return false;
+    }
+    var valuesToCheck = [];
+    valuesToCheck.push(safeTrim(String(assignmentTypeNewValue || '')));
+    valuesToCheck.push(safeTrim(String(g_form.getValue(VARIABLE_NEW_ASSIGNMENT_TYPE) || '')));
+    if (typeof g_form.getDisplayValue === 'function') {
+        try {
+            valuesToCheck.push(safeTrim(String(g_form.getDisplayValue(VARIABLE_NEW_ASSIGNMENT_TYPE) || '')));
+        } catch (e) {
+        }
+    }
+    var i;
+    for (i = 0; i < valuesToCheck.length; i++) {
+        var v = valuesToCheck[i];
+        if (!v) {
+            continue;
+        }
+        if (v === permanentLabel || v.toLowerCase() === permanentLabel.toLowerCase()) {
+            return true;
+        }
+    }
+    return false;
 }
 
 function normalizeSysId(value) {
@@ -126,7 +140,7 @@ function getModelCategorySysIdFromAsset(assetRecord) {
     if (!assetRecord) {
         return '';
     }
-    var fieldNames = ['model_category', 'u_model_category'];
+    var fieldNames = ['model_category', 'u_model_category', 'cmdb_model_category', 'u_cmdb_model_category'];
     var i;
     for (i = 0; i < fieldNames.length; i++) {
         var raw = assetRecord.getValue(fieldNames[i]);
@@ -183,7 +197,7 @@ function applySimPermanentRules(cfg) {
     var dd = ('0' + assignmentDate.getDate()).slice(-2);
 
     g_form.setValue(VARIABLE_NEW_LOAN_END_DATE, yyyy + '-' + mm + '-' + dd);
-    g_form.setMandatory(VARIABLE_NEW_CHARGEBACK_CC, false);
+    relaxChargebackMandatoryForSimPermanent();
 
     g_form.setDisabled(VARIABLE_NEW_MAX_LOAN_END_DATE, false);
     g_form.setMandatory(VARIABLE_NEW_MAX_LOAN_END_DATE, true);
@@ -194,4 +208,16 @@ function applyNonSimPermanentMaxLoanRules() {
     g_form.setDisabled(VARIABLE_NEW_MAX_LOAN_END_DATE, false);
     g_form.setMandatory(VARIABLE_NEW_MAX_LOAN_END_DATE, true);
     g_form.clearValue(VARIABLE_NEW_MAX_LOAN_END_DATE);
+}
+
+/**
+ * UI Policy may set chargeback mandatory after this script; defer clears mandatory again.
+ */
+function relaxChargebackMandatoryForSimPermanent() {
+    g_form.setMandatory(VARIABLE_NEW_CHARGEBACK_CC, false);
+    if (typeof window !== 'undefined' && typeof window.setTimeout === 'function') {
+        window.setTimeout(function () {
+            g_form.setMandatory(VARIABLE_NEW_CHARGEBACK_CC, false);
+        }, 0);
+    }
 }
