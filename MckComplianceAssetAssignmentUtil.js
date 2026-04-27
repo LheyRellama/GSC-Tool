@@ -25,10 +25,8 @@
  *     Description: Display (or stored value) for the Permanent choice on catalog variable
  *                  new_assignment_type; used to detect Permanent in client script.
  *
- *   mck.asset_assign.asset_lookup_tables (optional)
- *     Suggested value: x_mkmig_vap_virtual_asset,alm_hardware
- *     Description: Comma-separated table names tried server-side to resolve model_category for
- *                  sysparm_asset_sys_id (Virtual asset first, then hardware). Add/adjust for your VA table.
+ * Server-side category lookup (getModelCategorySysIdForAsset) tries VA then hardware tables — edit
+ * the defaultAssetLookupTables string inside _resolveModelCategoryFromAssetSysId if your VA table differs.
  */
 
 var MckComplianceAssetAssignmentUtil = Class.create();
@@ -49,8 +47,8 @@ MckComplianceAssetAssignmentUtil.prototype = Object.extendsObject(AbstractAjaxPr
         if (!assetSysId) {
             return '';
         }
-        var tablesProp = gs.getProperty('mck.asset_assign.asset_lookup_tables', 'x_mkmig_vap_virtual_asset,alm_hardware');
-        var tables = tablesProp.split(',');
+        var defaultAssetLookupTables = 'x_mkmig_vap_virtual_asset,alm_hardware';
+        var tables = defaultAssetLookupTables.split(',');
         var i;
         for (i = 0; i < tables.length; i++) {
             var tableName = (tables[i] + '').replace(/^\s+|\s+$/g, '');
