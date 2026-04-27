@@ -1,0 +1,8 @@
+function onChange(control, oldValue, newValue, isLoading) {
+    if (isLoading) {
+        return;
+    }
+    if (typeof window !== 'undefined' && typeof window.MCK_HAM_COMPLIANCE_RUN === 'function') {
+        window.MCK_HAM_COMPLIANCE_RUN();
+    }
+}
