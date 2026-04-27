@@ -1,11 +1,12 @@
 /**
  * Script Include: MckComplianceAssetAssignmentUtil
- * Scope: GSC tool (Compliance Asset Update — GSC path)
+ * Scope: GSC tool (Compliance Asset Update — GSC path). ITDC out of scope unless reused by policy.
  * Client callable: true
  * Accessible from: All application scopes (adjust per governance)
  *
  * PURPOSE:
  *   Exposes system property values to catalog client scripts (browser cannot call gs.getProperty).
+ *   Single source of truth for SIM permanent assignment business values (HCR).
  *
  * SYSTEM PROPERTIES — create in System Properties [sys_properties]:
  *
@@ -23,10 +24,66 @@
  *     Suggested value: Permanent
  *     Description: Display (or stored value) for the Permanent choice on catalog variable
  *                  new_assignment_type; used to detect Permanent in client script.
+ *
+ *   mck.asset_assign.asset_lookup_tables (optional)
+ *     Suggested value: x_mkmig_vap_virtual_asset,alm_hardware
+ *     Description: Comma-separated table names tried server-side to resolve model_category for
+ *                  sysparm_asset_sys_id (Virtual asset first, then hardware). Add/adjust for your VA table.
  */
 
 var MckComplianceAssetAssignmentUtil = Class.create();
 MckComplianceAssetAssignmentUtil.prototype = Object.extendsObject(AbstractAjaxProcessor, {
+
+    /**
+     * Server-side model category resolution (client getReference can return empty due to ACL/scope).
+     * Client calls with sysparm_name=getModelCategorySysIdForAsset, sysparm_asset_sys_id=<sys_id>.
+     * Returns JSON: { "modelCategorySysId": "<32-char sys_id or empty>" }
+     */
+    getModelCategorySysIdForAsset: function() {
+        var assetSysId = this.getParameter('sysparm_asset_sys_id');
+        var cat = this._resolveModelCategoryFromAssetSysId(assetSysId);
+        return JSON.stringify({ modelCategorySysId: cat || '' });
+    },
+
+    _resolveModelCategoryFromAssetSysId: function(assetSysId) {
+        if (!assetSysId) {
+            return '';
+        }
+        var tablesProp = gs.getProperty('mck.asset_assign.asset_lookup_tables', 'x_mkmig_vap_virtual_asset,alm_hardware');
+        var tables = tablesProp.split(',');
+        var i;
+        for (i = 0; i < tables.length; i++) {
+            var tableName = (tables[i] + '').replace(/^\s+|\s+$/g, '');
+            if (!tableName) {
+                continue;
+            }
+            var gr;
+            try {
+                gr = new GlideRecord(tableName);
+            } catch (e1) {
+                continue;
+            }
+            if (!gr.get(assetSysId)) {
+                continue;
+            }
+            var c = gr.getValue('model_category') || gr.getValue('u_model_category')
+                || gr.getValue('cmdb_model_category') || gr.getValue('u_cmdb_model_category');
+            if (c) {
+                return c;
+            }
+            var modelId = gr.getValue('model');
+            if (modelId) {
+                var gm = new GlideRecord('cmdb_model');
+                if (gm.get(modelId)) {
+                    var mc = gm.getValue('cmdb_model_category');
+                    if (mc) {
+                        return mc;
+                    }
+                }
+            }
+        }
+        return '';
+    },
 
     /**
      * Returns JSON string for client: loanDays, modelCategorySysIdList, permanentAssignmentDisplay
