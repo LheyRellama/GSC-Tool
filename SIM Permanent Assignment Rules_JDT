@@ -6,6 +6,7 @@ var VARIABLE_NEW_MAX_LOAN_END_DATE = 'new_max_loan_end_date';
 
 var SCRIPT_INCLUDE_NAME = 'MckComplianceAssetAssignmentUtil';
 var AJAX_METHOD_NAME = 'getSimPermanentConfig';
+var AJAX_METHOD_CATEGORY = 'getModelCategorySysIdForAsset';
 
 /** Populated from gs.getProperty via GlideAjax — no hard-coded business values in this file */
 var mckHamSimConfigCache = null;
@@ -84,19 +85,47 @@ function runPermanentAssignmentLogicForCurrentForm() {
         return;
     }
 
-    g_form.getReference(VARIABLE_TARGET_ASSET, function (assetRecord) {
-        if (!assetRecord) {
-            applyNonSimPermanentMaxLoanRules();
-            return;
-        }
-
-        var modelCategorySysId = getModelCategorySysIdFromAsset(assetRecord);
-
+    resolveModelCategorySysId(assetSysId, cfg, function (modelCategorySysId) {
         if (isSimModelCategorySysId(modelCategorySysId, cfg)) {
             applySimPermanentRules(cfg);
         } else {
             applyNonSimPermanentMaxLoanRules();
         }
+    });
+}
+
+/**
+ * Client-side category from getReference; if empty (ACL/scope), server resolves via Script Include.
+ */
+function resolveModelCategorySysId(assetSysId, cfg, onDone) {
+    g_form.getReference(VARIABLE_TARGET_ASSET, function (assetRecord) {
+        if (!assetRecord) {
+            fetchModelCategoryFromServer(assetSysId, onDone);
+            return;
+        }
+        var clientCat = getModelCategorySysIdFromAsset(assetRecord);
+        if (clientCat) {
+            onDone(clientCat);
+            return;
+        }
+        fetchModelCategoryFromServer(assetSysId, onDone);
+    });
+}
+
+function fetchModelCategoryFromServer(assetSysId, onDone) {
+    var ga = new GlideAjax(SCRIPT_INCLUDE_NAME);
+    ga.addParam('sysparm_name', AJAX_METHOD_CATEGORY);
+    ga.addParam('sysparm_asset_sys_id', assetSysId);
+    ga.getXMLAnswer(function (answer) {
+        var cat = '';
+        try {
+            if (answer) {
+                var o = JSON.parse(answer);
+                cat = o.modelCategorySysId || '';
+            }
+        } catch (e) {
+        }
+        onDone(normalizeSysId(cat));
     });
 }
 
@@ -214,10 +243,25 @@ function applyNonSimPermanentMaxLoanRules() {
  * UI Policy may set chargeback mandatory after this script; defer clears mandatory again.
  */
 function relaxChargebackMandatoryForSimPermanent() {
-    g_form.setMandatory(VARIABLE_NEW_CHARGEBACK_CC, false);
-    if (typeof window !== 'undefined' && typeof window.setTimeout === 'function') {
-        window.setTimeout(function () {
-            g_form.setMandatory(VARIABLE_NEW_CHARGEBACK_CC, false);
-        }, 0);
+    var delays = [0, 50, 150, 300];
+    var i;
+    for (i = 0; i < delays.length; i++) {
+        (function (ms) {
+            if (typeof window !== 'undefined' && typeof window.setTimeout === 'function') {
+                window.setTimeout(function () {
+                    g_form.setMandatory(VARIABLE_NEW_CHARGEBACK_CC, false);
+                }, ms);
+            } else if (ms === 0) {
+                g_form.setMandatory(VARIABLE_NEW_CHARGEBACK_CC, false);
+            }
+        })(delays[i]);
     }
+}
+
+if (typeof window !== 'undefined') {
+    window.MCK_HAM_COMPLIANCE_RUN = function () {
+        ensureSimPermanentConfigLoaded(function () {
+            runPermanentAssignmentLogicForCurrentForm();
+        });
+    };
 }
